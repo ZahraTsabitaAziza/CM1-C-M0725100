@@ -1,0 +1,331 @@
+---
+title: "Eksplorasi dan visualisasi data rental film di negara ASEAN berdasarkan database sakila"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    highlight: kate
+---
+
+
+<style>
+
+/* Mengatur font seluruh dokumen */
+body {
+  font-family: DM Sans, sans-serif;
+  line-height: 1.6;
+}
+
+/* Teks heading jadi putih */
+h1{
+  color: white !important;
+  font-family: "EB Garamond", serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+  text-align: center;
+  
+}
+
+/* Title styling */
+.title {
+  font-family: "EB Garamond", serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+  text-align: left;
+  font-size: 30px;
+}
+
+
+/* Mengatur judul utama */
+.title { 
+  padding: 15px;
+  border-radius: 20px;
+}
+
+/* Mengatur heading 1*/
+h1 {
+  color: white;
+  background-color: #77bfa3;
+  text-align: center;
+  padding: 10px;
+  font-weight: bold
+  border-radius: 8px;
+}
+
+/* Mengatur heading 2*/
+h2 {
+  color: black;
+  font-size: 20px;
+  border-bottom: 2px solid #2d6a4f;
+  padding-bottom: 5px;
+}
+
+/* Mengatur heading 3*/
+h3 {
+  color: black;
+  font-size: 18px;
+  font-family: Arial, sans-serif;
+  border-left: 6px solid #2d6a4f;
+  padding-left: 10px;
+  margin-top: 25px;
+}
+
+
+/* Mengatur style tabel */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: Arial;
+}
+
+th {
+  background-color: #40916c;
+  color: white;
+  padding: 10px;
+  text-align: center;
+}
+
+td {
+  padding: 8px;
+  border-bottom: 1px solid #dddddd;
+}
+
+tr:nth-child(even){
+  background-color: #b7e4c7;
+}
+
+tr:hover {
+  background-color: #d8f3dc;
+}
+
+</style>
+
+```{r setup, include=FALSE}
+## Global options
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+# Pendahuluan
+Dataset Sakila merupakan data contoh sistem rental film yang mencakup informasi mengenai pelanggan, transaksi rental, film, genre, wilayah (negara), serta pendapatan (amount). Saya mengambil insight dari dataset ini untuk menganalisis pola konsumsi film di kawasan ASEAN berdasarkan jumlah rental, preferensi genre, serta kontribusi pendapatan.
+
+
+### Insight yang diambil
+
+1. Film apa saja yang termasuk dalam Top 5 film terlaris berdasarkan jumlah rental di negara-negara ASEAN?
+
+2. Bagaimana distribusi genre film yang paling banyak diminati oleh pelanggan di kawasan ASEAN?
+
+3. Bagaimana performa toko (store) di wilayah ASEAN berdasarkan jumlah pelanggan, jumlah transaksi, dan market share (kontribusi) masing-masing negara ASEAN terhadap total rental film?
+
+4. Bagaimana jumlah pendapatan dari setiap negara di ASEAN
+
+# Gambar Peta ASEAN
+### Berikut adalah gambar peta negara ASEAN
+<figure>
+  <img src="frepik.jpeg" width="2000px">
+</figure>
+
+# Metode Analisis
+### Persiapan dan koneksi data
+```{R persiapan data}
+# Persiapan dan import data
+library(DBI)
+library(odbc)
+library(dplyr)
+library(ggplot2)
+library(RMySQL)
+library(knitr)
+con2 = dbConnect(odbc(),
+                 Driver = "MySQL ODBC 8.0 ANSI Driver",
+                 SERVER = "127.0.0.1",
+                 UID = "root",
+                 PWD = "tata230207",
+                 Port = 3306,
+                 database = "sakila")
+dbIsValid(con2)
+```
+
+### Sintaks yang digunakan untuk melihat film yang paling diminati di negara ASEAN
+```{R datafilm}
+datafilm = dbGetQuery(con2,"SELECT f.title AS judul_film, COUNT(r.rental_id) AS total_rental
+FROM country co
+JOIN city ci ON co.country_id = ci.country_id
+JOIN address a ON ci.city_id = a.city_id
+JOIN customer c ON a.address_id = c.address_id
+JOIN rental r ON c.customer_id = r.customer_id
+JOIN inventory i ON r.inventory_id = i.inventory_id
+JOIN film f ON i.film_id = f.film_id
+WHERE co.country IN (
+'Indonesia','Malaysia','Singapore',
+'Thailand','Philippines','Vietnam',
+'Brunei','Cambodia','Laos','Myanmar')
+GROUP BY f.title
+ORDER BY total_rental DESC")
+top5 <- head(datafilm, 5)
+print(top5)
+```
+
+### Sintaks yang digunakan untuk melihat genre favorite dari negara ASEAN
+```{R datagenre}
+datagenre = dbGetQuery(con2, "SELECT cat.name AS Genre, COUNT(r.rental_id) AS Total_Rental
+FROM country co
+JOIN city ci ON co.country_id = ci.country_id
+JOIN address a ON ci.city_id = a.city_id
+JOIN customer c ON a.address_id = c.address_id
+JOIN rental r ON c.customer_id = r.customer_id
+JOIN inventory i ON r.inventory_id = i.inventory_id
+JOIN film_category f ON i.film_id = f.film_id
+JOIN category cat ON f.category_id = cat.category_id
+WHERE co.country IN (
+'Indonesia','Malaysia','Singapore',
+'Thailand','Philippines','Vietnam',
+'Brunei','Cambodia','Laos','Myanmar')
+GROUP BY Genre
+ORDER BY Total_Rental DESC")
+print(datagenre)
+```
+
+### Sintaks untuk melihat performa toko di wilayah ASEAN
+```{R tabelperforma}
+con2 = dbConnect(odbc(),
+                 Driver = "MySQL ODBC 8.0 ANSI Driver",
+                 SERVER = "127.0.0.1",
+                 UID = "root",
+                 PWD = "tata230207",
+                 Port = 3306,
+                 database = "sakila")
+tabelperforma = dbGetQuery(con2, "SELECT co.country, COUNT(DISTINCT cu.customer_id) AS jumlah_pelanggan,
+COUNT(r.rental_id) AS jumlah_transaksi, 
+ROUND(COUNT(r.rental_id) * 1.0 / COUNT(DISTINCT cu.customer_id), 2) AS rata_transaksi_per_pelanggan,
+CONCAT(ROUND(COUNT(r.rental_id) * 100.0 / SUM(COUNT(r.rental_id)) OVER(), 2), '%') AS market_share
+FROM country co
+JOIN city ci ON co.country_id = ci.country_id
+JOIN address a ON ci.city_id = a.city_id
+JOIN customer cu ON a.address_id = cu.address_id
+JOIN rental r ON cu.customer_id = r.customer_id
+WHERE co.country IN (
+    'Indonesia','Malaysia','Singapore',
+    'Thailand','Philippines','Vietnam',
+    'Brunei','Cambodia','Laos','Myanmar'
+)
+GROUP BY co.country
+ORDER BY jumlah_transaksi DESC")
+print(tabelperforma)
+```
+
+### Sintaks untuk melihat total pendapatan setiap negara di wilayah ASEAN
+```{R datapendapatan}
+datapendapatan = dbGetQuery(con2,"SELECT co.country, SUM(p.amount) AS total_Pendapatan
+FROM country co
+JOIN city ci ON co.country_id = ci.country_id
+JOIN address a ON ci.city_id = a.city_id
+JOIN customer c ON a.address_id = c.address_id
+JOIN payment p ON c.customer_id = p.customer_id
+WHERE co.country IN (
+  'Indonesia','Malaysia','Singapore',
+  'Thailand','Philippines','Vietnam',
+  'Brunei','Cambodia','Laos','Myanmar'
+)
+GROUP BY co.country
+ORDER BY total_Pendapatan DESC")
+print(datapendapatan)
+```
+
+# Hasil dan Visualisasi
+### Diagaram batang Top 5 film terlaris di seluruh negara ASEAN berdasarkan jumlah rental
+```{R Top5, echo=TRUE, warning=FALSE, message=FALSE, fig.width=20, fig.height=20, fig.align = 'center'}
+ggplot(top5, aes(x = judul_film, y = total_rental, fill = judul_film)) +
+  geom_bar(stat = "identity") +
+  scale_x_discrete(expand = expansion(add = c(0.8, 0.5))) +
+  scale_fill_manual(values =c("#1b4332", "#2d6a4f", "#40916c"
+                              ,"#52b788", "#74c69d")) +
+  labs(title = "Top 5 Film Terlaris di Negara ASEAN ",
+       x = "Judul Film",
+       y = "Jumlah Rental") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1,vjust = 1, family = "Sans", size = 40, face = "bold"),
+    axis.text.y = element_text(family = "Sans", size = 40, face ="bold"),
+    plot.title = element_text(size = 50, face = "bold"),
+    axis.title.x = element_text(size = 46, face = "bold"),
+    axis.title.y = element_text(size = 46, face = "bold"),
+    legend.position = "none")
+```
+
+
+### Diagaram batang genre film favourite seluruh negara ASEAN berdasarkan jumlah rental
+```{R BarDataGenre , echo=TRUE, warning=FALSE, message=FALSE, fig.width=20, fig.height=20, fig.align = 'center'}
+ggplot(datagenre, aes(x = reorder(Genre, Total_Rental), y = Total_Rental, fill = Total_Rental)) +
+  geom_bar(stat = "identity")+
+  scale_fill_gradient(low = "#d8f3dc", high = "#1b4332") +
+  coord_flip() +
+  labs(title = "Genre Film Favourite di Negara ASEAN",
+       x = "Genre",
+       y = "Total Rental") +
+  theme_minimal()+ 
+  theme(
+    axis.text.x = element_text(family = "Sans", size = 40, face = "bold"),
+    axis.text.y = element_text(family = "Sans", size = 40, face ="bold"),
+    plot.title = element_text(size = 40, face = "bold"),
+    axis.title.x = element_text(size = 46, face = "bold"),
+    axis.title.y = element_text(size = 46, face = "bold"),
+    legend.position = "none")
+```
+
+### Diagaram batang jumlah pendapatan di seluruh negara ASEAN berdasarkan jumlah amount dan jumlah rental
+```{R Barmarket, echo=TRUE, warning=FALSE, message=FALSE, fig.width=20, fig.height=20, fig.align = 'center'}
+ggplot(datapendapatan, aes(x = reorder(country, total_Pendapatan), y = total_Pendapatan, fill = country)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0("$", total_Pendapatan)), size=14, vjust= -0.5)+
+  scale_fill_manual(values =c("#1b4332", "#2d6a4f", "#40916c",
+                              "#52b788", "#74c69d", "#95d5b2", "#b7e4c7", "#d8f3dc")) +
+  labs(title = "Total Pendapatan Setiap Negara ASEAN",
+       x = "Negara",
+       y = "Total Pendapatan (USD)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1,vjust = 1, family = "Sans", size = 40, face = "bold"),
+    axis.text.y = element_blank(),
+    plot.title = element_text(size = 50, face = "bold"),
+    axis.title.x = element_text(size = 46, face = "bold"),
+    axis.title.y = element_text(size = 46, face = "bold"),
+    legend.position = "none")
+```
+
+### Tabel Performa toko di wilayah ASEAN
+Dalam perhitungan market share  menggunakan rumus sebagai berikut:
+$$
+\text{Market Share} = \frac{\text{Total Rental Negara}_i}{\sum_{i=1}^{n} \text{Total Rental Negara}_i} \times 100\%
+$$
+
+```{R Tabelmarket}
+knitr::kable(tabelperforma,
+             caption = "Tabel Peforma Toko di Wilayah Asean",
+             col.names = c("Negara", "Jumlah Pelanggan",  "Jumlah Transaksi", "Rata Rata Transaksi", "Market Share"),
+             align = "lccccc")
+```
+# Interpretasi Hasil
+## Interpretasi diagram top 5 film terlaris di negara ASEAN
+Berdasarkan diagram batang di atas, **STRANGELOVE DESIRE** merupakan film dengan jumlah rental tertinggi di kawasan ASEAN dengan total **7 rental**, sementara **CROOKED FROGMEN, HORN WORKING, OPERATION OPERATION,** dan **SUSPECTS QUILLS** masing-masing memiliki **6 rental**. Secara keseluruhan, perbedaan jumlah rental antar film tidak terlalu signifikan, berkisar antara 6–7 rental. Hal ini mengindikasikan bahwa preferensi penonton di kawasan ASEAN terhadap kelima film tersebut relatif merata dan tidak ada dominasi yang mencolok dari satu film tertentu.
+
+## Interpretasi dari diagram genre favourite di negara ASEAN
+Berdasarkan diagram batang horizontal di atas, **Animation** menjadi genre film yang paling banyak disewa di kawasan ASEAN dengan total rental mendekati **100 rental**, diikuti oleh **Foreign** dan **Family** yang juga mencatatkan angka rental sangat tinggi di kisaran **93–95 rental**. Genre **Action, Drama,** dan **Sports** turut masuk dalam kelompok genre populer dengan jumlah rental yang tidak jauh berbeda, menunjukkan bahwa film-film bergenre dinamis dan penuh aksi memiliki daya tarik yang kuat di kalangan pelanggan ASEAN.
+
+Di sisi lain, genre **Horror** tercatat sebagai genre dengan jumlah rental paling rendah, yaitu sekitar **65 rental**, disusul oleh **Classics** dan **Documentary** yang berada di kisaran yang sama. Meskipun demikian, perbedaan antara genre tertinggi dan terendah tidak terlampau jauh, yakni sekitar **30 rental**, yang menunjukkan bahwa seluruh genre film masih memiliki peminatnya masing-masing di kawasan ASEAN.
+
+Secara keseluruhan, dapat disimpulkan bahwa pelanggan di kawasan ASEAN memiliki preferensi yang cukup beragam terhadap berbagai genre film. Namun, genre **Animation** mendominasi sebagai genre favorit, kemungkinan karena daya tariknya yang universal dan dapat dinikmati oleh berbagai kalangan usia.
+
+## Interpretasi idagram total pendapatan setiap negara yang tergabung dalam ASEAN
+Berdasarkan diagram di atas, **Philippines** mencatatkan total pendapatan tertinggi di kawasan ASEAN dengan nilai mencapai sekitar **2.400**, jauh melampaui negara-negara lainnya. **Indonesia** berada di posisi kedua dengan total pendapatan sekitar **1.500**, diikuti **Vietnam** di posisi ketiga sekitar **750**. Sementara itu, **Brunei** menjadi negara dengan total pendapatan terendah, hanya sekitar **100**. Kesenjangan yang cukup besar antara Philippines dan negara-negara lainnya mengindikasikan bahwa Philippines merupakan pasar rental film terbesar dan paling potensial di kawasan ASEAN.
+
+## Interpretasi tabel market share
+Berdasarkan tabel hasil market share di atas, **Philippines** mendominasi pasar rental film di kawasan ASEAN dengan market share tertinggi sebesar **39.78%** dari total 568 rental, menjadikannya negara dengan kontribusi terbesar hampir setara dengan **2/5 dari keseluruhan pasar ASEAN**. **Indonesia** berada di posisi kedua dengan market share **25.70%** (367 rental), sehingga jika digabungkan, kedua negara ini menguasai lebih dari **65% pasar rental film ASEAN**.
+
+**Vietnam** menempati posisi ketiga dengan kontribusi sebesar **12.04%**, sementara **Thailand** dan **Malaysia** masing-masing menyumbang **6.72%** dan **5.95%**. Di sisi lain, **Cambodia, Myanmar,** dan **Brunei** mencatatkan market share paling rendah, masing-masing hanya sebesar **3.71%, 3.64%,** dan **2.45%**, menunjukkan bahwa ketiga negara tersebut memiliki basis pelanggan yang masih sangat kecil dibandingkan negara ASEAN lainnya.
+
+Secara keseluruhan, distribusi market share di kawasan ASEAN **tidak merata** dan cenderung terkonsentrasi pada dua negara besar yaitu Philippines dan Indonesia. Hal ini mengindikasikan adanya potensi pengembangan pasar yang masih sangat besar di negara-negara dengan market share rendah seperti Brunei, Myanmar, dan Cambodia.
+
+
+
+
